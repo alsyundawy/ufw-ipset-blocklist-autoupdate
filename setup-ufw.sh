@@ -1,100 +1,44 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
-# ##################################################
-# ufw-ipset-blocklist-autoupdate
-#
-# Blocking lists of IPs from public blacklists / blocklists (e.g. blocklist.de, spamhaus.org)
-#
-# Version: 1.1.1
-#
-# See: https://github.com/ngandrass/ufw-ipset-blacklist-autoupdate
-#
-#
-# MIT License
-#
-# Copyright (c) 2023 Niels Gandraß <niels@gandrass.de>
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
-# ##################################################
-
-UFW_CONF_DIR=/etc/ufw
-UFW_AFTER_INIT_FILE=$UFW_CONF_DIR/after.init
-IPSET_DIR="/var/lib/ipset"  # Folder to write ipset save files to
+# Variables
+UFW_CONF_DIR="/etc/ufw"
+UFW_AFTER_INIT_FILE="$UFW_CONF_DIR/after.init"
+IPSET_DIR="/var/lib/ipset"
 CONFIGURE_IPV6=0
 
-# Let user abort
-read -r -p "Configure UFW to block IPs listed in blocklist ipsets? [Y/n] " ret
-case "$ret" in
-    [nN][oO]|[nN]) exit
-        ;;
-    *)
-        ;;
-esac
+# Function to process user input
+process_input() {
+    read -r -p "$1" response
+    case "$response" in
+        [yY][eE][sS]|[yY]) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
-read -r -p "Would you like to enable IPv6 support? [Y/n] " ret
-case "$ret" in
-    [nN][oO]|[nN]) CONFIGURE_IPV6=0
-        ;;
-    *)
-        CONFIGURE_IPV6=1
-        ;;
-esac
+# Let user abort
+process_input "Configure UFW to block IPs listed in blocklist ipsets? [Y/n] " || exit
+
+# Enable IPv6 support if requested
+process_input "Would you like to enable IPv6 support? [Y/n] " && CONFIGURE_IPV6=1
 
 # Ensure that IPSET_DIR exists
 mkdir -p "$IPSET_DIR" || exit
 
-# Check that ufw has IPv6 enabled
-if [[ "$CONFIGURE_IPV6" == 1 ]]; then
-    if ! grep -q -E "IPV6=(yes|YES)" /etc/default/ufw; then
-        echo "ERROR: IPv6 rules requested but UFW is not configured to use IPv6. Set IPV6=yes in /etc/default/ufw and rerun this script."
-        exit 1
-    fi
+# Check if ufw has IPv6 enabled
+if [[ "$CONFIGURE_IPV6" == 1 && ! $(grep -q -E "IPV6=(yes|YES)" /etc/default/ufw) ]]; then
+    echo "ERROR: IPv6 rules requested but UFW is not configured to use IPv6. Set IPV6=yes in /etc/default/ufw and rerun this script."
+    exit 1
 fi
 
-# Check if file already exists.
-if [ -f "$UFW_AFTER_INIT_FILE" ]; then
-    read -r -p "The file $UFW_UFW_AFTER_INIT_FILE already exists. Are you sure that you want to overwrite it? [y/N] " ret
-    case "$ret" in
-        [yY][eE][sS]|[yY])
-            # continue
-            ;;
-        *)
-            exit
-            ;;
-    esac
+# Check if file already exists
+if [[ -f "$UFW_AFTER_INIT_FILE" ]]; then
+    process_input "The file $UFW_UFW_AFTER_INIT_FILE already exists. Are you sure that you want to overwrite it? [y/N] " || exit
 fi
 
-# Deploy after.init
-if [[ "$CONFIGURE_IPV6" == 1 ]]; then
-    cp "ufw/after6.init" "$UFW_AFTER_INIT_FILE" || exit
-else
-    cp "ufw/after.init" "$UFW_AFTER_INIT_FILE" || exit
-fi
+# Deploy after.init based on IPv6 support
+cp "ufw/after${CONFIGURE_IPV6:+6}.init" "$UFW_AFTER_INIT_FILE" || exit
 chmod 755 "$UFW_AFTER_INIT_FILE"
 echo "Deployed $UFW_UFW_AFTER_INIT_FILE"
 
-# Restart ufw
-read -r -p "Reload ufw to apply changes? [Y/n] " ret
-case "$ret" in
-    [nN][oO]|[nN]) exit
-        ;;
-    *)
-        ufw reload
-        ;;
-esac
+# Restart ufw if needed
+process_input "Reload ufw to apply changes? [Y/n] " && ufw reload
