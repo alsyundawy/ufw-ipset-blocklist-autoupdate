@@ -14,6 +14,7 @@
 ## Stargazers over time
 [![Stargazers over time](https://starchart.cc/alsyundawy/ufw-ipset-blocklist-autoupdate.svg?variant=adaptive)](https://starchart.cc/alsyundawy/ufw-ipset-blocklist-autoupdate)
 
+**Jika Anda merasa terbantu dan ingin mendukung proyek ini, pertimbangkan untuk berdonasi melalui https://www.paypal.me/alsyundawy. Terima kasih atas dukungannya!**
 
 This collection of scripts automatically pulls IP blocklists (e.g. Spamhaus, Blocklist, ...) and drops packages from
 listed IP addresses. It integrates with the uncomplicated firewall (`ufw`) and makes use of `ipset` for storing IP
