@@ -1,78 +1,77 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # ##################################################
 # ufw-ipset-blocklist-autoupdate
 #
 # Blocking lists of IPs from public blocklists / blacklists (e.g. blocklist.de, spamhaus.org)
 #
-# Version: 1.1.1
-#
-# See: https://github.com/ngandrass/ufw-ipset-blocklist-autoupdate
-#
+# Version: 1.1.2
 #
 # MIT License
-#
-# Copyright (c) 2023 Niels Gandraß <niels@gandrass.de>
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
 # ##################################################
 
-IPSET_BIN="$(which ipset)"
+IPSET_BIN="$(command -v ipset)"
 IPSET_DIR="/var/lib/ipset"
+LOG_PREFIX="[UFW BLOCK]"
 
-# Check prerequisites
-if [ ! -x "${IPSET_BIN}" ]; then
-  echo "ERROR: ipset binary not found in ${IPSET_BIN}"
-  return
+# Fungsi untuk menampilkan log
+log() {
+    echo "$(date +'%Y-%m-%d %H:%M:%S') - $1"
+}
+
+# Periksa apakah ipset tersedia
+if [[ ! -x "$IPSET_BIN" ]]; then
+    echo "ERROR: ipset binary not found."
+    exit 1
 fi
 
-if [ ! -d "${IPSET_DIR}" ]; then
-  echo "ERROR: ipset data directory does not exist: ${IPSET_DIR}" >&2
-  return
+# Periksa apakah direktori IPSET ada
+if [[ ! -d "$IPSET_DIR" ]]; then
+    echo "ERROR: ipset data directory does not exist: $IPSET_DIR" >&2
+    exit 1
 fi
 
-savefiles=$(find "$IPSET_DIR" -name "*-inet.save")
+# Ambil daftar file ipset yang disimpan
+savefiles=$(find "$IPSET_DIR" -name "*-inet.save" 2>/dev/null)
+
 case "$1" in
 start)
+    log "Starting IPSET blocklist loading..."
     for f in $savefiles; do
-        listname=$(basename -s ".save" "$f")
-
+        listname=$(basename "$f" .save)
+        
+        log "Restoring ipset list: $listname"
         $IPSET_BIN restore -! < "$f"
-        iptables -I INPUT -m set --match-set "$listname" src -j DROP
-        iptables -I INPUT -m set --match-set "$listname" src -j LOG --log-prefix "[UFW BLOCK $listname] "
+
+        # Tambahkan aturan iptables hanya jika belum ada
+        if ! iptables-save | grep -q -- "--match-set $listname src -j DROP"; then
+            iptables -I INPUT -m set --match-set "$listname" src -j DROP
+            iptables -I INPUT -m set --match-set "$listname" src -j LOG --log-prefix "$LOG_PREFIX $listname "
+            log "Added iptables rules for $listname"
+        else
+            log "iptables rules for $listname already exist, skipping..."
+        fi
     done
+    log "IPSET blocklist loaded successfully."
     ;;
 stop)
+    log "Stopping IPSET blocklist..."
     for f in $savefiles; do
-        listname=$(basename -s ".save" "$f")
-
-        iptables -D INPUT -m set --match-set "$listname" src -j DROP || true
-        iptables -D INPUT -m set --match-set "$listname" src -j LOG --log-prefix "[UFW BLOCK $listname] " || true
-        $IPSET_BIN destroy -q "$listname" || true
+        listname=$(basename "$f" .save)
+        
+        iptables -D INPUT -m set --match-set "$listname" src -j DROP 2>/dev/null || log "Rule DROP for $listname not found, skipping..."
+        iptables -D INPUT -m set --match-set "$listname" src -j LOG --log-prefix "$LOG_PREFIX $listname " 2>/dev/null || log "Rule LOG for $listname not found, skipping..."
+        
+        log "Destroying ipset list: $listname"
+        $IPSET_BIN destroy -q "$listname" 2>/dev/null || log "Failed to destroy ipset list $listname or it does not exist."
     done
+    log "IPSET blocklist stopped."
     ;;
 status)
-    echo "= after.init ="
-    $IPSET_BIN -t list
-    echo ""
+    echo "=== Current IPSET Lists ==="
+    $IPSET_BIN list || echo "No ipset lists found."
     ;;
 *)
-    echo "'$1' not supported"
-    echo "Usage: after.init {start|stop|status}"
+    echo "Usage: $0 {start|stop|status}"
+    exit 1
     ;;
 esac
