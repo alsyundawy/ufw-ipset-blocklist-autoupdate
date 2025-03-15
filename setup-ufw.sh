@@ -1,44 +1,60 @@
 #!/bin/bash
 
-# Variables
+# Set mode error handling
+set -euo pipefail
+
+# Variabel
 UFW_CONF_DIR="/etc/ufw"
 UFW_AFTER_INIT_FILE="$UFW_CONF_DIR/after.init"
 IPSET_DIR="/var/lib/ipset"
 CONFIGURE_IPV6=0
 
-# Function to process user input
+# Fungsi untuk menangani input pengguna
 process_input() {
-    read -r -p "$1" response
+    local prompt="$1"
+    local default_choice="${2:-Y}"  # Default jawaban adalah 'Y' jika tidak diberikan
+    read -r -p "$prompt [$default_choice]: " response
+    response="${response:-$default_choice}"  # Gunakan default jika tidak ada input
     case "$response" in
         [yY][eE][sS]|[yY]) return 0 ;;
         *) return 1 ;;
     esac
 }
 
-# Let user abort
-process_input "Configure UFW to block IPs listed in blocklist ipsets? [Y/n] " || exit
+# Konfirmasi konfigurasi UFW dengan blocklist
+process_input "Configure UFW to block IPs listed in blocklist ipsets?" || exit 0
 
-# Enable IPv6 support if requested
-process_input "Would you like to enable IPv6 support? [Y/n] " && CONFIGURE_IPV6=1
-
-# Ensure that IPSET_DIR exists
-mkdir -p "$IPSET_DIR" || exit
-
-# Check if ufw has IPv6 enabled
-if [[ "$CONFIGURE_IPV6" == 1 && ! $(grep -q -E "IPV6=(yes|YES)" /etc/default/ufw) ]]; then
-    echo "ERROR: IPv6 rules requested but UFW is not configured to use IPv6. Set IPV6=yes in /etc/default/ufw and rerun this script."
-    exit 1
+# Konfirmasi apakah ingin mengaktifkan IPv6
+if process_input "Would you like to enable IPv6 support?" ; then
+    CONFIGURE_IPV6=1
 fi
 
-# Check if file already exists
+# Pastikan direktori IPSET tersedia
+mkdir -p "$IPSET_DIR"
+
+# Periksa apakah IPv6 diaktifkan dalam konfigurasi UFW
+if [[ "$CONFIGURE_IPV6" == 1 ]]; then
+    if ! grep -qE "^IPV6=(yes|YES)$" /etc/default/ufw; then
+        echo "IPv6 belum dikonfigurasi di UFW. Memperbaiki konfigurasi..."
+        sed -i 's/^IPV6=no/IPV6=yes/' /etc/default/ufw
+        echo "Konfigurasi IPv6 telah diperbarui ke 'yes'."
+    fi
+fi
+
+# Periksa apakah file after.init sudah ada
 if [[ -f "$UFW_AFTER_INIT_FILE" ]]; then
-    process_input "The file $UFW_UFW_AFTER_INIT_FILE already exists. Are you sure that you want to overwrite it? [y/N] " || exit
+    if ! process_input "The file $UFW_AFTER_INIT_FILE already exists. Overwrite?" "N"; then
+        exit 0
+    fi
 fi
 
-# Deploy after.init based on IPv6 support
-cp "ufw/after${CONFIGURE_IPV6:+6}.init" "$UFW_AFTER_INIT_FILE" || exit
+# Salin konfigurasi after.init yang sesuai dengan IPv6
+cp "ufw/after${CONFIGURE_IPV6:+6}.init" "$UFW_AFTER_INIT_FILE"
 chmod 755 "$UFW_AFTER_INIT_FILE"
-echo "Deployed $UFW_UFW_AFTER_INIT_FILE"
+echo "Deployed $UFW_AFTER_INIT_FILE"
 
-# Restart ufw if needed
-process_input "Reload ufw to apply changes? [Y/n] " && ufw reload
+# Reload UFW jika diminta
+if process_input "Reload UFW to apply changes?"; then
+    ufw reload
+    echo "UFW berhasil di-reload."
+fi
