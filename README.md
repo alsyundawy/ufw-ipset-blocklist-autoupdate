@@ -68,22 +68,33 @@ Contoh penggunaan:
 
 Skrip ini dapat membaca semua daftar blokir yang mencantumkan alamat IPv4 atau IPv6 dengan format teks biasa per baris. Beberapa daftar blokir yang dapat digunakan:
 
-- **Spamhaus DROP List**  
-  ```sh
-  -l "spamhaus https://www.spamhaus.org/drop/drop.txt"
-  ```
-- **Blocklist.de (Semua Laporan Fail2Ban)**  
-  ```sh
-  -l "blocklist https://lists.blocklist.de/lists/all.txt"
-  ```
-- **FireHOL Level 1**  
-  ```sh
-  -l "firehol1 https://iplists.firehol.org/files/firehol_level1.netset"
-  ```
-- **Binary Defense Systems Banlist**  
-  ```sh
-  -l "bdsatib https://www.binarydefense.com/banlist.txt"
-  ```
+- [Binary Defense Systems Artillery Threat Intelligence Banlist](https://www.binarydefense.com):</br>
+  `-l "bdsatib https://www.binarydefense.com/banlist.txt"`
+- [Blocklist.de Fail2Ban Reporting (all)](https://www.blocklist.de/en/export.html):</br>
+  `-l "blocklist https://lists.blocklist.de/lists/all.txt"`
+- [BruteForceBlocker](https://danger.rulez.sk/index.php/bruteforceblocker/):</br>
+  `-l "bfblocker https://danger.rulez.sk/projects/bruteforceblocker/blist.php"`
+- [CINS Army List](http://www.ciarmy.com/#list):</br>
+  `-l "cnisarmy http://cinsscore.com/list/ci-badguys.txt"`
+- [FEODO Tracker: Botnet C2 (Recommended)](https://feodotracker.abuse.ch/blocklist/):</br>
+  `-l "feodoc2 https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt"`
+- [FEODO Tracker: Botnet C2 IoC (Recommended)](https://feodotracker.abuse.ch/blocklist/):</br>
+  `-l "feodoc2ioc https://feodotracker.abuse.ch/downloads/ipblocklist.txt"`
+- [FEODO Tracker: Botnet C2 IoC (Aggressive)](https://feodotracker.abuse.ch/blocklist/):</br>
+  `-l "feodoc2ioca https://feodotracker.abuse.ch/downloads/ipblocklist_aggressive.txt"`
+- [FireHOL IP List Level 1](https://iplists.firehol.org/):</br>
+  `-l "firehol1 https://iplists.firehol.org/files/firehol_level1.netset"`
+- [GreenSnow](https://greensnow.co/):</br>
+  `-l "greensnow https://blocklist.greensnow.co/greensnow.txt"`
+- [IPsum](https://github.com/stamparm/ipsum):</br>
+  `-l "ipsum https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt"`</br>
+- [Spamhaus Don't Route Or Peer List (DROP)](https://www.spamhaus.org/drop/):</br>
+  `-l "spamhaus https://www.spamhaus.org/drop/drop.txt"`
+- [Spamhaus IPv6 DROP List (DROPv6)](https://www.spamhaus.org/drop/):</br>
+  `-l "spamhaus6 https://www.spamhaus.org/drop/dropv6.txt"`
+- [Spamhaus Extended DROP List (EDROP)](https://www.spamhaus.org/drop/):</br>
+  `-l "spamhausex https://www.spamhaus.org/drop/edrop.txt"`
+
 
 ## Penghargaan
 
