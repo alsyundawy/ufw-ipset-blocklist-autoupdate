@@ -80,7 +80,7 @@ echo "Menjalankan setup awal UFW..."
 
 # 9. Update blocklist pertama kali
 echo "Memperbarui blocklist..."
-(cd "$DIR" ;bash update-ip-blocklists.sh -l "blocklist https://lists.blocklist.de/lists/all.txt" -l "spamhaus https://www.spamhaus.org/drop/drop.txt" -l "bdsatib https://www.binarydefense.com/banlist.txt" -l "ipsum https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt" -l "greensnow https://blocklist.greensnow.co/greensnow.txt" -l "cnisarmy http://cinsscore.com/list/ci-badguys.txt")
+(cd "$DIR" ;bash update-ip-blocklists.sh -l "blocklist https://lists.blocklist.de/lists/all.txt" -l "spamhaus https://www.spamhaus.org/drop/drop.txt" -l "bdsatib https://www.binarydefense.com/banlist.txt" -l "ipsum https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt" -l "greensnow https://blocklist.greensnow.co/greensnow.txt" -l "cnisarmy http://cinsscore.com/list/ci-badguys.txt" -l "feodoc2ioc https://feodotracker.abuse.ch/downloads/ipblocklist.txt" -l "spamhausex https://www.spamhaus.org/drop/edrop.txt")
 
 # 10. Atur cron job harian untuk update blocklist
 echo "Mengatur cron job harian..."
