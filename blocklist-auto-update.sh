@@ -50,28 +50,42 @@ declare -A BLOCKLISTS=(
 #--------------------------------------
 # Deteksi OS & Instalasi Dependensi
 #--------------------------------------
-log "Mendeteksi OS dan memasang dependensi..."
+log "Mendeteksi OS dan memeriksa dependensi..."
 if [[ -f /etc/debian_version ]]; then
-    PKG_INSTALL="apt-get update -qq && apt-get install -y -qq"
-    DEPENDENCIES=(git ufw ipset iptables dos2unix)
+    MISSING=()
+    for pkg in git ufw ipset iptables dos2unix; do
+        if ! dpkg -s "$pkg" &>/dev/null; then
+            MISSING+=("$pkg")
+        fi
+    done
+    if (( ${#MISSING[@]} > 0 )); then
+        log "Menginstal paket: ${MISSING[*]}"
+        apt-get update -qq
+        apt-get install -y -qq "${MISSING[@]}"
+    else
+        log "Semua dependensi sudah terpasang."
+    fi
 elif [[ -f /etc/redhat-release ]]; then
-    PKG_INSTALL="yum install -y -q epel-release && yum install -y -q"
-    DEPENDENCIES=(git ufw ipset iptables-services dos2unix)
+    MISSING=()
+    # Pastikan epel-release
+    if ! rpm -q epel-release &>/dev/null; then
+        yum install -y -q epel-release
+    fi
+    for pkg in git ufw ipset iptables-services dos2unix; do
+        if ! rpm -q "$pkg" &>/dev/null; then
+            MISSING+=("$pkg")
+        fi
+    done
+    if (( ${#MISSING[@]} > 0 )); then
+        log "Menginstal paket: ${MISSING[*]}"
+        yum install -y -q "${MISSING[@]}"
+    else
+        log "Semua dependensi sudah terpasang."
+    fi
+    systemctl enable --now iptables
 else
     log "Distribusi tidak didukung" ERROR
     exit 1
-fi
-
-# Install paket jika belum terpasang
-for pkg in "${DEPENDENCIES[@]}"; do
-    if ! command -v "${pkg%%=*}" &>/dev/null; then
-        $PKG_INSTALL "$pkg"
-    fi
-done
-
-# Aktifkan service iptables di RHEL
-if [[ -f /etc/redhat-release ]]; then
-    systemctl enable --now iptables
 fi
 
 #--------------------------------------
