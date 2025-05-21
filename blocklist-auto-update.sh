@@ -1,110 +1,145 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Script: blocklist-auto-update.sh
-# Deskripsi: Instalasi dan konfigurasi otomatis blocklist, penjadwalan cron,
-#            serta memastikan UFW mendukung IPv6 dengan benar.
+# Deskripsi: Otomasi instalasi/konfigurasi blocklist dengan UFW dan ipset (IPv4 & IPv6), penjadwalan cron harian.
+# Prasyarat: Dijalankan sebagai root.
 
-set -euo pipefail  # Aktifkan strict mode
+set -euo pipefail
+IFS=$'\n\t'
 
-# Fungsi untuk logging yang konsisten
+#--------------------------------------
+# Fungsi Logging
+#--------------------------------------
 log() {
-    echo "[$(date "+%Y-%m-%d %H:%M:%S")] $1"
+    local timestamp level msg
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    level=${2:-INFO}
+    msg=$1
+    echo "[${timestamp}] [${level}] ${msg}"
 }
 
-# 1. Pastikan script dijalankan sebagai root
-if [ "$(id -u)" -ne 0 ]; then
-    log "Harap jalankan sebagai root: sudo $0" >&2
+#--------------------------------------
+# Validasi Akses Root
+#--------------------------------------
+if [[ $EUID -ne 0 ]]; then
+    log "Script must be run as root." ERROR
     exit 1
 fi
 
-# 2. Tentukan direktori instalasi repository
-DIR="/root/ufw-ipset-blocklist-autoupdate"
+#--------------------------------------
+# Variabel Konfigurasi
+#--------------------------------------
+REPO_URL="https://github.com/alsyundawy/ufw-ipset-blocklist-autoupdate.git"
+WORKDIR="/root/ufw-ipset-blocklist-autoupdate"
+CRON_PATH="/etc/cron.d/blocklist-update"
+UPDATE_SCRIPT="update-ip-blocklists.sh"
+SETUP_SCRIPT="setup-ufw.sh"
+CRON_SCHEDULE="0 2 * * *"
 
-# 3. Deteksi distribusi dan instal dependensi
-log "Mendeteksi sistem operasi..."
-if [ -f /etc/debian_version ]; then
-    OS="debian"
-    INSTALL_CMD="apt-get update -qq && apt-get install -y -qq"
-elif [ -f /etc/redhat-release ]; then
-    OS="rhel"
-    INSTALL_CMD="yum install -y -q"
+# Daftar blocklist (nama dan URL)
+declare -A BLOCKLISTS=(
+    [blocklist]="https://lists.blocklist.de/lists/all.txt"
+    [spamhaus]="https://www.spamhaus.org/drop/drop.txt"
+    [bdsatib]="https://www.binarydefense.com/banlist.txt"
+    [ipsum]="https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt"
+    [greensnow]="https://blocklist.greensnow.co/greensnow.txt"
+    [cinsscore]="http://cinsscore.com/list/ci-badguys.txt"
+    [feodotracker]="https://feodotracker.abuse.ch/downloads/ipblocklist.txt"
+    [sefinek]="https://raw.githubusercontent.com/sefinek/Malicious-IP-Addresses/main/lists/main.txt"
+)
+
+#--------------------------------------
+# Deteksi OS & Instalasi Dependensi
+#--------------------------------------
+log "Mendeteksi OS dan memasang dependensi..."
+if [[ -f /etc/debian_version ]]; then
+    PKG_INSTALL="apt-get update -qq && apt-get install -y -qq"
+    DEPENDENCIES=(git ufw ipset iptables dos2unix)
+elif [[ -f /etc/redhat-release ]]; then
+    PKG_INSTALL="yum install -y -q epel-release && yum install -y -q"
+    DEPENDENCIES=(git ufw ipset iptables-services dos2unix)
 else
-    log "Distribusi tidak didukung!" >&2
+    log "Distribusi tidak didukung" ERROR
     exit 1
 fi
 
-log "Menginstal dependensi..."
-if [ "$OS" = "debian" ]; then
-    $INSTALL_CMD git iptables ufw ipset dos2unix
-elif [ "$OS" = "rhel" ]; then
-    $INSTALL_CMD epel-release
-    $INSTALL_CMD git iptables-services ufw ipset dos2unix
+# Install paket jika belum terpasang
+for pkg in "${DEPENDENCIES[@]}"; do
+    if ! command -v "${pkg%%=*}" &>/dev/null; then
+        $PKG_INSTALL "$pkg"
+    fi
+done
+
+# Aktifkan service iptables di RHEL
+if [[ -f /etc/redhat-release ]]; then
     systemctl enable --now iptables
 fi
 
-# 4. Konfigurasi repository blocklist
-log "Mengkonfigurasi repository..."
-if [ ! -d "$DIR" ]; then
-    git clone --depth 1 https://github.com/alsyundawy/ufw-ipset-blocklist-autoupdate.git "$DIR"
+#--------------------------------------
+# Clone atau Update Repository
+#--------------------------------------
+log "Menyiapkan repository blocklist..."
+if [[ -d "$WORKDIR/.git" ]]; then
+    git -C "$WORKDIR" pull --quiet origin master
 else
-    (cd "$DIR" && git pull --quiet origin master)
+    git clone --depth 1 "$REPO_URL" "$WORKDIR"
 fi
 
-# 5. Pastikan konfigurasi IPv6 benar
-log "Memastikan konfigurasi IPv6 di /etc/default/ufw..."
-if [ -f /etc/default/ufw ]; then
-    # Ubah format file ke Unix dan konfigurasikan IPv6
-    dos2unix -q /etc/default/ufw 2>/dev/null || true
-    sed -i 's/^[[:space:]]*IPV6=no.*$/IPV6=yes/' /etc/default/ufw
-    
-    # Tambahkan IPV6=yes jika tidak ada
-    if ! grep -q "^IPV6=yes" /etc/default/ufw; then
-        echo "IPV6=yes" >> /etc/default/ufw
-    fi
+#--------------------------------------
+# Konfigurasi UFW IPv6
+#--------------------------------------
+log "Mengonfigurasi IPv6 di UFW..."
+UFW_CONF="/etc/default/ufw"
+if [[ -f "$UFW_CONF" ]]; then
+    dos2unix -q "$UFW_CONF" || true
+    sed -i -E 's/^#?IPV6=.*$/IPV6=yes/' "$UFW_CONF"
+    grep -q '^IPV6=yes' "$UFW_CONF" || echo 'IPV6=yes' >> "$UFW_CONF"
+else
+    log "$UFW_CONF tidak ditemukan" WARNING
 fi
 
-# 6. Restart UFW agar konfigurasi baru diterapkan
-log "Melakukan restart UFW..."
+# Restart UFW
 ufw --force disable
 ufw --force enable
+log "UFW telah di-restart dengan IPv6 aktif."
 
-# 7. Verifikasi konfigurasi IPv6
-if grep -q "^IPV6=yes" /etc/default/ufw; then
-    log "Konfigurasi IPv6 sudah aktif."
+#--------------------------------------
+# Jalankan Setup Awal
+#--------------------------------------
+log "Menjalankan setup awal UFW dari repository..."
+if [[ -x "$WORKDIR/$SETUP_SCRIPT" ]]; then
+    bash "$WORKDIR/$SETUP_SCRIPT"
 else
-    log "Error: IPv6 belum dikonfigurasi dengan benar di /etc/default/ufw." >&2
+    log "Script setup tidak ditemukan: $WORKDIR/$SETUP_SCRIPT" ERROR
     exit 1
 fi
 
-# 8. Jalankan setup awal UFW dari repository
-log "Menjalankan setup awal UFW..."
-(cd "$DIR" && bash setup-ufw.sh)
-
-# 9. Daftar sumber blocklist
-BLOCKLISTS=(
-    "blocklist https://lists.blocklist.de/lists/all.txt"
-    "spamhaus https://www.spamhaus.org/drop/drop.txt"
-    "bdsatib https://www.binarydefense.com/banlist.txt"
-    "ipsum https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt"
-    "greensnow https://blocklist.greensnow.co/greensnow.txt"
-    "cnisarmy http://cinsscore.com/list/ci-badguys.txt"
-    "feodoc2ioc https://feodotracker.abuse.ch/downloads/ipblocklist.txt"
-    "sefinek https://raw.githubusercontent.com/sefinek/Malicious-IP-Addresses/main/lists/main.txt"
-)
-
-# Membuat parameter command line
-BLOCKLIST_ARGS=""
-for list in "${BLOCKLISTS[@]}"; do
-    BLOCKLIST_ARGS+=" -l \"$list\""
+#--------------------------------------
+# Build Argumen Blocklist
+#--------------------------------------
+log "Menyusun parameter blocklist..."
+args=()
+for name url in "${!BLOCKLISTS[@]}"; do
+    args+=("-l" "$name $url")
 done
 
-# 10. Update blocklist pertama kali
-log "Memperbarui blocklist..."
-(cd "$DIR" && bash update-ip-blocklists.sh $BLOCKLIST_ARGS)
+#--------------------------------------
+# Update Blocklist Pertama Kali
+#--------------------------------------
+log "Memperbarui blocklist pertama kali..."
+if [[ -x "$WORKDIR/$UPDATE_SCRIPT" ]]; then
+    bash "$WORKDIR/$UPDATE_SCRIPT" "${args[@]}"
+else
+    log "Script update tidak ditemukan: $WORKDIR/$UPDATE_SCRIPT" ERROR
+    exit 1
+fi
 
-# 11. Atur cron job harian untuk update blocklist
-log "Mengatur cron job harian..."
-CRON_FILE="/etc/cron.d/blocklist-update"
-echo "0 2 * * * root cd $DIR && bash update-ip-blocklists.sh $BLOCKLIST_ARGS >/dev/null 2>&1" > "$CRON_FILE"
-chmod 644 "$CRON_FILE"
+#--------------------------------------
+# Atur Cron Job Harian
+#--------------------------------------
+log "Menulis cron job harian ke $CRON_PATH..."
+cat << EOF > "$CRON_PATH"
+${CRON_SCHEDULE} root cd $WORKDIR && bash $UPDATE_SCRIPT ${args[*]} >/dev/null 2>&1
+EOF
+chmod 644 "$CRON_PATH"
 
-log "Instalasi selesai! Blocklist akan diperbarui setiap hari pukul 02:00."
+log "Instalasi dan konfigurasi selesai. Blocklist dijadwalkan setiap hari pukul 02:00."
