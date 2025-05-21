@@ -67,7 +67,6 @@ if [[ -f /etc/debian_version ]]; then
     fi
 elif [[ -f /etc/redhat-release ]]; then
     MISSING=()
-    # Pastikan epel-release
     if ! rpm -q epel-release &>/dev/null; then
         yum install -y -q epel-release
     fi
@@ -117,11 +116,17 @@ ufw --force enable
 log "UFW telah di-restart dengan IPv6 aktif."
 
 #--------------------------------------
-# Jalankan Setup Awal
+# Jalankan Setup Awal (Non-interaktif)
 #--------------------------------------
-log "Menjalankan setup awal UFW dari repository..."
+log "Menjalankan setup awal UFW (auto-confirm)..."
 if [[ -x "$WORKDIR/$SETUP_SCRIPT" ]]; then
-    bash "$WORKDIR/$SETUP_SCRIPT"
+    # Pastikan direktori ufw & file after.init & after6.init ada
+    INIT_DIR="$WORKDIR/ufw"
+    mkdir -p "$INIT_DIR"
+    touch "$INIT_DIR/after.init" "$INIT_DIR/after6.init"
+
+    # Jalankan setup script dari direktori kerja yang benar
+    (cd "$WORKDIR" && yes Y | bash "$SETUP_SCRIPT")
 else
     log "Script setup tidak ditemukan: $WORKDIR/$SETUP_SCRIPT" ERROR
     exit 1
@@ -132,8 +137,8 @@ fi
 #--------------------------------------
 log "Menyusun parameter blocklist..."
 args=()
-for name url in "${!BLOCKLISTS[@]}"; do
-    args+=("-l" "$name $url")
+for name in "${!BLOCKLISTS[@]}"; do
+    args+=("-l" "$name ${BLOCKLISTS[$name]}")
 done
 
 #--------------------------------------
@@ -141,7 +146,7 @@ done
 #--------------------------------------
 log "Memperbarui blocklist pertama kali..."
 if [[ -x "$WORKDIR/$UPDATE_SCRIPT" ]]; then
-    bash "$WORKDIR/$UPDATE_SCRIPT" "${args[@]}"
+    (cd "$WORKDIR" && bash "$UPDATE_SCRIPT" "${args[@]}")
 else
     log "Script update tidak ditemukan: $WORKDIR/$UPDATE_SCRIPT" ERROR
     exit 1
