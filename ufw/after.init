@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # ##################################################
 # ufw-ipset-blocklist-autoupdate (IPv4 Only)
 # Load & manage IPSET blocklists for UFW/iptables

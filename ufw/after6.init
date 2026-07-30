@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # ##################################################
 # ufw-ipset-blocklist-autoupdate (IPv4 + IPv6, CentOS 6 Compatible)
 # ##################################################
@@ -15,7 +15,7 @@ log() {
 
 check_rule_exists() {
     # $1 = iptables command, $2 = chain, $3 = setname
-    $1-save 2>/dev/null | grep -q -- "-A $2 .*--match-set $3"
+    "$1"-save 2>/dev/null | grep -q -- "-A $2 .*--match-set $3"
 }
 
 # Cek apakah ipset tersedia

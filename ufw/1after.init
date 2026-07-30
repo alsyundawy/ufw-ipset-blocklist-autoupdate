@@ -30,20 +30,17 @@ if [[ ! -d "$IPSET_DIR" ]]; then
     exit 1
 fi
 
-# Ambil daftar file ipset yang disimpan
-savefiles=$(find "$IPSET_DIR" -name "*-inet.save" 2>/dev/null)
-
 case "$1" in
 start)
     log "Starting IPSET blocklist loading..."
-    for f in $savefiles; do
+    find "$IPSET_DIR" -type f -name "*-inet.save" -print0 | while IFS= read -r -d '' f; do
+        [ ! -s "$f" ] && continue
         listname=$(basename "$f" .save)
-        
+
         log "Restoring ipset list: $listname"
         $IPSET_BIN restore -! < "$f"
 
-        # Tambahkan aturan iptables hanya jika belum ada
-        if ! iptables-save | grep -q -- "--match-set $listname src -j DROP"; then
+        if ! iptables -C INPUT -m set --match-set "$listname" src -j DROP 2>/dev/null; then
             iptables -I INPUT -m set --match-set "$listname" src -j DROP
             iptables -I INPUT -m set --match-set "$listname" src -j LOG --log-prefix "$LOG_PREFIX $listname "
             log "Added iptables rules for $listname"
@@ -55,12 +52,12 @@ start)
     ;;
 stop)
     log "Stopping IPSET blocklist..."
-    for f in $savefiles; do
+    find "$IPSET_DIR" -type f -name "*-inet.save" -print0 | while IFS= read -r -d '' f; do
         listname=$(basename "$f" .save)
-        
+
         iptables -D INPUT -m set --match-set "$listname" src -j DROP 2>/dev/null || log "Rule DROP for $listname not found, skipping..."
         iptables -D INPUT -m set --match-set "$listname" src -j LOG --log-prefix "$LOG_PREFIX $listname " 2>/dev/null || log "Rule LOG for $listname not found, skipping..."
-        
+
         log "Destroying ipset list: $listname"
         $IPSET_BIN destroy -q "$listname" 2>/dev/null || log "Failed to destroy ipset list $listname or it does not exist."
     done

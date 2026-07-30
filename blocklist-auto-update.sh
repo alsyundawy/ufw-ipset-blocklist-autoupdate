@@ -10,19 +10,19 @@ IFS=$'\n\t'
 # Fungsi Logging
 #--------------------------------------
 log() {
-    local timestamp level msg
-    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    level=${2:-INFO}
-    msg=$1
-    echo "[${timestamp}] [${level}] ${msg}"
+	local timestamp level msg
+	timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+	level=${2:-INFO}
+	msg=$1
+	echo "[${timestamp}] [${level}] ${msg}"
 }
 
 #--------------------------------------
 # Validasi Akses Root
 #--------------------------------------
-if [[ $EUID -ne 0 ]]; then
-    log "Script must be run as root." ERROR
-    exit 1
+if [[ ${EUID} -ne 0 ]]; then
+	log "Script must be run as root." ERROR
+	exit 1
 fi
 
 #--------------------------------------
@@ -37,14 +37,14 @@ CRON_SCHEDULE="0 2 * * *"
 
 # Daftar blocklist (nama dan URL)
 declare -A BLOCKLISTS=(
-    [blocklist]="https://lists.blocklist.de/lists/all.txt"
-    [spamhaus]="https://www.spamhaus.org/drop/drop.txt"
-    [bdsatib]="https://www.binarydefense.com/banlist.txt"
-    [ipsum]="https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt"
-    [greensnow]="https://blocklist.greensnow.co/greensnow.txt"
-    [cinsscore]="http://cinsscore.com/list/ci-badguys.txt"
-    [feodotracker]="https://feodotracker.abuse.ch/downloads/ipblocklist.txt"
-    [sefinek]="https://raw.githubusercontent.com/sefinek/Malicious-IP-Addresses/main/lists/main.txt"
+	[blocklist]="https://lists.blocklist.de/lists/all.txt"
+	[spamhaus]="https://www.spamhaus.org/drop/drop.txt"
+	[bdsatib]="https://www.binarydefense.com/banlist.txt"
+	[ipsum]="https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt"
+	[greensnow]="https://blocklist.greensnow.co/greensnow.txt"
+	[cinsscore]="http://cinsscore.com/list/ci-badguys.txt"
+	[feodotracker]="https://feodotracker.abuse.ch/downloads/ipblocklist.txt"
+	[sefinek]="https://raw.githubusercontent.com/sefinek/Malicious-IP-Addresses/main/lists/main.txt"
 )
 
 #--------------------------------------
@@ -52,49 +52,49 @@ declare -A BLOCKLISTS=(
 #--------------------------------------
 log "Mendeteksi OS dan memeriksa dependensi..."
 if [[ -f /etc/debian_version ]]; then
-    MISSING=()
-    for pkg in git ufw ipset iptables dos2unix; do
-        if ! dpkg -s "$pkg" &>/dev/null; then
-            MISSING+=("$pkg")
-        fi
-    done
-    if (( ${#MISSING[@]} > 0 )); then
-        log "Menginstal paket: ${MISSING[*]}"
-        apt-get update -qq
-        apt-get install -y -qq "${MISSING[@]}"
-    else
-        log "Semua dependensi sudah terpasang."
-    fi
+	MISSING=()
+	for pkg in git ufw ipset iptables dos2unix; do
+		if ! dpkg -s "${pkg}" &>/dev/null; then
+			MISSING+=("${pkg}")
+		fi
+	done
+	if ((${#MISSING[@]} > 0)); then
+		log "Menginstal paket: ${MISSING[*]}"
+		apt-get update -qq
+		apt-get install -y -qq "${MISSING[@]}"
+	else
+		log "Semua dependensi sudah terpasang."
+	fi
 elif [[ -f /etc/redhat-release ]]; then
-    MISSING=()
-    if ! rpm -q epel-release &>/dev/null; then
-        yum install -y -q epel-release
-    fi
-    for pkg in git ufw ipset iptables-services dos2unix; do
-        if ! rpm -q "$pkg" &>/dev/null; then
-            MISSING+=("$pkg")
-        fi
-    done
-    if (( ${#MISSING[@]} > 0 )); then
-        log "Menginstal paket: ${MISSING[*]}"
-        yum install -y -q "${MISSING[@]}"
-    else
-        log "Semua dependensi sudah terpasang."
-    fi
-    systemctl enable --now iptables
+	MISSING=()
+	if ! rpm -q epel-release &>/dev/null; then
+		yum install -y -q epel-release
+	fi
+	for pkg in git ufw ipset iptables-services dos2unix; do
+		if ! rpm -q "${pkg}" &>/dev/null; then
+			MISSING+=("${pkg}")
+		fi
+	done
+	if ((${#MISSING[@]} > 0)); then
+		log "Menginstal paket: ${MISSING[*]}"
+		yum install -y -q "${MISSING[@]}"
+	else
+		log "Semua dependensi sudah terpasang."
+	fi
+	systemctl enable --now iptables
 else
-    log "Distribusi tidak didukung" ERROR
-    exit 1
+	log "Distribusi tidak didukung" ERROR
+	exit 1
 fi
 
 #--------------------------------------
 # Clone atau Update Repository
 #--------------------------------------
 log "Menyiapkan repository blocklist..."
-if [[ -d "$WORKDIR/.git" ]]; then
-    git -C "$WORKDIR" pull --quiet origin master
+if [[ -d "${WORKDIR}/.git" ]]; then
+	git -C "${WORKDIR}" pull --quiet origin master
 else
-    git clone --depth 1 "$REPO_URL" "$WORKDIR"
+	git clone --depth 1 "${REPO_URL}" "${WORKDIR}"
 fi
 
 #--------------------------------------
@@ -102,12 +102,12 @@ fi
 #--------------------------------------
 log "Mengonfigurasi IPv6 di UFW..."
 UFW_CONF="/etc/default/ufw"
-if [[ -f "$UFW_CONF" ]]; then
-    dos2unix -q "$UFW_CONF" || true
-    sed -i -E 's/^#?IPV6=.*$/IPV6=yes/' "$UFW_CONF"
-    grep -q '^IPV6=yes' "$UFW_CONF" || echo 'IPV6=yes' >> "$UFW_CONF"
+if [[ -f ${UFW_CONF} ]]; then
+	dos2unix -q "${UFW_CONF}" || true
+	sed -i -E 's/^#?IPV6=.*$/IPV6=yes/' "${UFW_CONF}"
+	grep -q '^IPV6=yes' "${UFW_CONF}" || echo 'IPV6=yes' >>"${UFW_CONF}"
 else
-    log "$UFW_CONF tidak ditemukan" WARNING
+	log "${UFW_CONF} tidak ditemukan" WARNING
 fi
 
 # Restart UFW
@@ -119,17 +119,17 @@ log "UFW telah di-restart dengan IPv6 aktif."
 # Jalankan Setup Awal (Non-interaktif)
 #--------------------------------------
 log "Menjalankan setup awal UFW (auto-confirm)..."
-if [[ -x "$WORKDIR/$SETUP_SCRIPT" ]]; then
-    # Pastikan direktori ufw & file after.init & after6.init ada
-    INIT_DIR="$WORKDIR/ufw"
-    mkdir -p "$INIT_DIR"
-    touch "$INIT_DIR/after.init" "$INIT_DIR/after6.init"
+if [[ -x "${WORKDIR}/${SETUP_SCRIPT}" ]]; then
+	# Pastikan direktori ufw & file after.init & after6.init ada
+	INIT_DIR="${WORKDIR}/ufw"
+	mkdir -p "${INIT_DIR}"
+	touch "${INIT_DIR}/after.init" "${INIT_DIR}/after6.init"
 
-    # Jalankan setup script dari direktori kerja yang benar
-    (cd "$WORKDIR" && yes Y | bash "$SETUP_SCRIPT")
+	# Jalankan setup script dari direktori kerja yang benar
+	(cd "${WORKDIR}" && yes Y | bash "${SETUP_SCRIPT}")
 else
-    log "Script setup tidak ditemukan: $WORKDIR/$SETUP_SCRIPT" ERROR
-    exit 1
+	log "Script setup tidak ditemukan: ${WORKDIR}/${SETUP_SCRIPT}" ERROR
+	exit 1
 fi
 
 #--------------------------------------
@@ -137,28 +137,30 @@ fi
 #--------------------------------------
 log "Menyusun parameter blocklist..."
 args=()
+cron_args_str=""
 for name in "${!BLOCKLISTS[@]}"; do
-    args+=("-l" "$name ${BLOCKLISTS[$name]}")
+	args+=("-l" "${name} ${BLOCKLISTS[${name}]}")
+	cron_args_str+="-l \"${name} ${BLOCKLISTS[${name}]}\" "
 done
 
 #--------------------------------------
 # Update Blocklist Pertama Kali
 #--------------------------------------
 log "Memperbarui blocklist pertama kali..."
-if [[ -x "$WORKDIR/$UPDATE_SCRIPT" ]]; then
-    (cd "$WORKDIR" && bash "$UPDATE_SCRIPT" "${args[@]}")
+if [[ -x "${WORKDIR}/${UPDATE_SCRIPT}" ]]; then
+	(cd "${WORKDIR}" && bash "${UPDATE_SCRIPT}" "${args[@]}")
 else
-    log "Script update tidak ditemukan: $WORKDIR/$UPDATE_SCRIPT" ERROR
-    exit 1
+	log "Script update tidak ditemukan: ${WORKDIR}/${UPDATE_SCRIPT}" ERROR
+	exit 1
 fi
 
 #--------------------------------------
 # Atur Cron Job Harian
 #--------------------------------------
-log "Menulis cron job harian ke $CRON_PATH..."
-cat << EOF > "$CRON_PATH"
-${CRON_SCHEDULE} root cd $WORKDIR && bash $UPDATE_SCRIPT ${args[*]} >/dev/null 2>&1
+log "Menulis cron job harian ke ${CRON_PATH}..."
+cat <<EOF >"${CRON_PATH}"
+${CRON_SCHEDULE} root cd ${WORKDIR} && bash ${UPDATE_SCRIPT} ${cron_args_str}>/dev/null 2>&1
 EOF
-chmod 644 "$CRON_PATH"
+chmod 644 "${CRON_PATH}"
 
 log "Instalasi dan konfigurasi selesai. Blocklist dijadwalkan setiap hari pukul 02:00."

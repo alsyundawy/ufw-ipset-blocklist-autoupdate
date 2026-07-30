@@ -12,6 +12,7 @@
 [![Kontributor GitHub](https://img.shields.io/github/contributors/alsyundawy/ufw-ipset-blocklist-autoupdate?style=social)](https://github.com/alsyundawy/ufw-ipset-blocklist-autoupdate/graphs/contributors)
 
 ## Jumlah Bintang Seiring Waktu
+
 [![Stargazers over time](https://starchart.cc/alsyundawy/ufw-ipset-blocklist-autoupdate.svg?variant=adaptive)](https://starchart.cc/alsyundawy/ufw-ipset-blocklist-autoupdate)
 
 **Jika proyek ini bermanfaat bagi Anda, silakan pertimbangkan untuk berdonasi melalui [PayPal](https://www.paypal.me/alsyundawy). Terima kasih atas dukungan Anda!**
@@ -23,7 +24,7 @@ Koleksi skrip ini secara otomatis mengambil daftar blokir IP (misalnya Spamhaus,
 ## Instalasi
 
 1. Instal `ufw` dan `ipset`.
-2. Jalankan skrip `setup-ufw.sh`:  
+2. Jalankan skrip `setup-ufw.sh`:
    ```sh
    ./setup-ufw.sh
    ```
@@ -95,7 +96,6 @@ Skrip ini dapat membaca semua daftar blokir yang mencantumkan alamat IPv4 atau I
 - [Spamhaus Extended DROP List (EDROP)](https://www.spamhaus.org/drop/):</br>
   `-l "spamhausex https://www.spamhaus.org/drop/edrop.txt"`
 
-
 ## Penghargaan
 
 Proyek ini terinspirasi dari [blog Xela's Linux](https://spielwiese.la-evento.com/xelasblog/archives/74-Ipset-aus-der-Spamhaus-DROP-gemeinsam-mit-ufw-nutzen.html).
@@ -103,6 +103,7 @@ Proyek ini terinspirasi dari [blog Xela's Linux](https://spielwiese.la-evento.co
 ---
 
 ## **Anda Luar Biasa | ༺ Harry DS Alsyundawy ༻**
+
 ## **"Hanya Saya, Diri Saya, dan Saya Sendiri. Tidak Ada yang Sempurna."**
 
 ---
