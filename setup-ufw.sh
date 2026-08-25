@@ -2,6 +2,7 @@
 
 # Set mode error handling
 set -euo pipefail
+IFS=$'\n\t'
 
 # Validasi Akses Root
 if [[ ${EUID} -ne 0 ]]; then
@@ -38,32 +39,47 @@ if process_input "Would you like to enable IPv6 support?"; then
 	CONFIGURE_IPV6=1
 fi
 
-# Pastikan direktori IPSET tersedia
-mkdir -p "${IPSET_DIR}"
+# Pastikan direktori IPSET dan UFW tersedia
+mkdir -p "${IPSET_DIR}" "${UFW_CONF_DIR}"
 
 # Periksa apakah IPv6 diaktifkan dalam konfigurasi UFW
-if [[ ${CONFIGURE_IPV6} == 1 ]]; then
-	if ! grep -qE "^IPV6=(yes|YES)$" /etc/default/ufw; then
-		echo "IPv6 belum dikonfigurasi di UFW. Memperbaiki konfigurasi..."
-		sed -i 's/^IPV6=no/IPV6=yes/' /etc/default/ufw
-		echo "Konfigurasi IPv6 telah diperbarui ke 'yes'."
+if [[ ${CONFIGURE_IPV6} -eq 1 ]]; then
+	if [[ -f /etc/default/ufw ]]; then
+		if ! grep -qE "^IPV6=(yes|YES)$" /etc/default/ufw; then
+			echo "IPv6 belum aktif di /etc/default/ufw. Memperbarui konfigurasi..."
+			sed -i.bak 's/^#*IPV6=.*/IPV6=yes/' /etc/default/ufw 2>/dev/null || sed -i 's/^#*IPV6=.*/IPV6=yes/' /etc/default/ufw
+			rm -f /etc/default/ufw.bak
+			echo "Konfigurasi IPv6 telah diperbarui ke 'yes'."
+		fi
 	fi
 fi
 
 # Periksa apakah file after.init sudah ada
 if [[ -f ${UFW_AFTER_INIT_FILE} ]]; then
 	if ! process_input "The file ${UFW_AFTER_INIT_FILE} already exists. Overwrite?" "N"; then
+		echo "Setup dibatalkan oleh pengguna."
 		exit 0
 	fi
 fi
 
-# Salin konfigurasi after.init yang sesuai dengan IPv6
-cp "${SCRIPT_DIR}/ufw/after${CONFIGURE_IPV6:+6}.init" "${UFW_AFTER_INIT_FILE}"
+# Tentukan file sumber
+SRC_INIT="${SCRIPT_DIR}/ufw/after$([[ ${CONFIGURE_IPV6} -eq 1 ]] && echo "6").init"
+if [[ ! -f "${SRC_INIT}" ]]; then
+	echo "ERROR: Source file ${SRC_INIT} tidak ditemukan." >&2
+	exit 1
+fi
+
+# Salin konfigurasi after.init
+cp "${SRC_INIT}" "${UFW_AFTER_INIT_FILE}"
 chmod 755 "${UFW_AFTER_INIT_FILE}"
 echo "Deployed ${UFW_AFTER_INIT_FILE}"
 
-# Reload UFW jika diminta
-if process_input "Reload UFW to apply changes?"; then
-	ufw reload
-	echo "UFW berhasil di-reload."
+# Reload UFW jika diminta dan binary tersedia
+if command -v ufw >/dev/null 2>&1; then
+	if process_input "Reload UFW to apply changes?"; then
+		ufw reload
+		echo "UFW berhasil di-reload."
+	fi
+else
+	echo "WARNING: ufw binary tidak ditemukan in PATH. Pastikan UFW terpasang."
 fi

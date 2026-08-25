@@ -3,94 +3,223 @@
 # ufw-ipset-blocklist-autoupdate
 #
 # Blocking lists of IPs from public blocklists / blacklists (e.g. blocklist.de, spamhaus.org)
+# Load & manage IPSET blocklists for UFW/iptables (IPv4 + IPv6)
 #
-# Version: 1.1.2
+# Version: 1.2.1
 #
 # MIT License
 # ##################################################
 
-IPSET_BIN="$(command -v ipset)"
-IPTABLES_BIN="$(command -v iptables)"
-IP6TABLES_BIN="$(command -v ip6tables)"
+set -euo pipefail
+IFS=$'\n\t'
+
+# === Configuration & Binaries ===
+IPSET_BIN="$(command -v ipset || true)"
+IPTABLES_BIN="$(command -v iptables || true)"
+IP6TABLES_BIN="$(command -v ip6tables || true)"
 IPSET_DIR="/var/lib/ipset"
 LOG_PREFIX="[UFW BLOCK]"
+USE_IPV6=false
 
+# === Logging Functions ===
 log() {
-    echo "$(date +'%Y-%m-%d %H:%M:%S') - $1" | logger -t ufw-ipset-blocklist
+	local msg="$1"
+	local timestamp
+	timestamp="$(date +'%Y-%m-%d %H:%M:%S')"
+	if command -v logger >/dev/null 2>&1; then
+		printf '%s - %s\n' "${timestamp}" "${msg}" | logger -t ufw-ipset-blocklist
+	fi
+	printf '%s - %s\n' "${timestamp}" "${msg}"
 }
 
-# Cek apakah ipset tersedia
-if [ ! -x "$IPSET_BIN" ]; then
-    echo "ERROR: ipset binary not found."
-    exit 1
+log_error() {
+	local msg="$1"
+	local timestamp
+	timestamp="$(date +'%Y-%m-%d %H:%M:%S')"
+	if command -v logger >/dev/null 2>&1; then
+		printf '%s - ERROR: %s\n' "${timestamp}" "${msg}" | logger -t ufw-ipset-blocklist -p user.err
+	fi
+	printf '%s - ERROR: %s\n' "${timestamp}" "${msg}" >&2
+}
+
+# === Sanity Checks ===
+# 1. Root privilege check
+if [[ ${EUID} -ne 0 ]]; then
+	log_error "Script must be run as root."
+	exit 1
 fi
 
-# Cek apakah direktori IPSET ada
-if [ ! -d "$IPSET_DIR" ]; then
-    echo "ERROR: ipset data directory does not exist: $IPSET_DIR" >&2
-    exit 1
+# 2. ipset binary check
+if [[ -z "${IPSET_BIN}" || ! -x "${IPSET_BIN}" ]]; then
+	log_error "ipset binary not found in PATH or not executable."
+	exit 1
 fi
 
-case "$1" in
+# 3. iptables binary check
+if [[ -z "${IPTABLES_BIN}" || ! -x "${IPTABLES_BIN}" ]]; then
+	log_error "iptables binary not found in PATH or not executable."
+	exit 1
+fi
+
+# 4. ip6tables binary check (optional IPv6 fallback)
+if [[ -n "${IP6TABLES_BIN}" && -x "${IP6TABLES_BIN}" ]]; then
+	USE_IPV6=true
+else
+	log "WARNING: ip6tables binary not found; IPv6 blocklist processing will be disabled."
+fi
+
+# 5. IPSET directory check
+if [[ ! -d "${IPSET_DIR}" ]]; then
+	log_error "ipset data directory does not exist: ${IPSET_DIR}"
+	exit 1
+fi
+
+# === Helper Functions ===
+format_log_prefix() {
+	local listname="$1"
+	local full_prefix="${LOG_PREFIX} ${listname} "
+	# iptables --log-prefix maximum length is 29 characters (XT_LOG_MAXPREFIX = 30 with NUL)
+	printf '%.29s' "${full_prefix}"
+}
+
+rule_exists() {
+	local bin="$1"
+	local chain="$2"
+	local listname="$3"
+	local target="$4"
+	shift 4
+	"${bin}" -C "${chain}" -m set --match-set "${listname}" src -j "${target}" "$@" 2>/dev/null
+}
+
+add_firewall_rules() {
+	local bin="$1"
+	local listname="$2"
+	local proto_label="$3"
+	local prefix
+	prefix="$(format_log_prefix "${listname}")"
+
+	# Insert DROP rule first if not present
+	if ! rule_exists "${bin}" INPUT "${listname}" DROP; then
+		"${bin}" -I INPUT -m set --match-set "${listname}" src -j DROP
+	fi
+
+	# Insert LOG rule before DROP (prepended to index 1)
+	if ! rule_exists "${bin}" INPUT "${listname}" LOG --log-prefix "${prefix}" --log-level 4; then
+		"${bin}" -I INPUT -m set --match-set "${listname}" src -j LOG --log-prefix "${prefix}" --log-level 4
+	fi
+
+	log "Added ${proto_label} firewall rules (LOG + DROP) for ${listname}"
+}
+
+remove_firewall_rules() {
+	local bin="$1"
+	local listname="$2"
+	local proto_label="$3"
+	local prefix
+	prefix="$(format_log_prefix "${listname}")"
+
+	# Remove all instances of LOG rules
+	while "${bin}" -D INPUT -m set --match-set "${listname}" src -j LOG --log-prefix "${prefix}" --log-level 4 2>/dev/null; do
+		log "Removed ${proto_label} LOG rule for ${listname}"
+	done
+
+	# Remove all instances of DROP rules
+	while "${bin}" -D INPUT -m set --match-set "${listname}" src -j DROP 2>/dev/null; do
+		log "Removed ${proto_label} DROP rule for ${listname}"
+	done
+}
+
+load_blocklists() {
+	local file_pattern="$1"
+	local iptables_cmd="$2"
+	local proto_label="$3"
+
+	while IFS= read -r -d '' f; do
+		[[ ! -s "${f}" ]] && continue
+		local listname
+		listname="$(basename "${f}" .save)"
+
+		log "Restoring ${proto_label} ipset list: ${listname}"
+		if ! "${IPSET_BIN}" restore -! <"${f}"; then
+			log_error "Failed to restore ipset list: ${listname}"
+			continue
+		fi
+
+		add_firewall_rules "${iptables_cmd}" "${listname}" "${proto_label}"
+	done < <(find "${IPSET_DIR}" -maxdepth 1 -type f -name "${file_pattern}" -print0)
+}
+
+unload_blocklists() {
+	local file_pattern="$1"
+	local iptables_cmd="$2"
+	local proto_label="$3"
+
+	while IFS= read -r -d '' f; do
+		[[ ! -e "${f}" ]] && continue
+		local listname
+		listname="$(basename "${f}" .save)"
+
+		remove_firewall_rules "${iptables_cmd}" "${listname}" "${proto_label}"
+
+		if "${IPSET_BIN}" destroy -q "${listname}" 2>/dev/null; then
+			log "Destroyed ${proto_label} ipset list: ${listname}"
+		else
+			log "ipset list ${listname} already destroyed or not present."
+		fi
+	done < <(find "${IPSET_DIR}" -maxdepth 1 -type f -name "${file_pattern}" -print0)
+}
+
+# === Main Entrypoint ===
+case "${1:-}" in
 start)
-    log "Starting IPSET blocklist loading..."
-    
-    find "$IPSET_DIR" -name "*-inet.save" -print0 | while IFS= read -r -d '' f; do
-        listname=$(basename "$f" .save)
-        
-        log "Restoring ipset list: $listname"
-        $IPSET_BIN restore -! < "$f"
+	log "Starting IPSET blocklist loading..."
 
-        # Tambahkan aturan iptables jika belum ada
-        if ! $IPTABLES_BIN -C INPUT -m set --match-set "$listname" src -j DROP 2>/dev/null; then
-            $IPTABLES_BIN -I INPUT -m set --match-set "$listname" src -j DROP
-            $IPTABLES_BIN -I INPUT -m set --match-set "$listname" src -j LOG --log-prefix "$LOG_PREFIX $listname "
-            log "Added iptables rules for $listname"
-        fi
-    done
+	# Process IPv4 save files
+	load_blocklists "*-inet.save" "${IPTABLES_BIN}" "IPv4"
 
-    find "$IPSET_DIR" -name "*-inet6.save" -print0 | while IFS= read -r -d '' f; do
-        listname=$(basename "$f" .save)
-        
-        log "Restoring ipset list: $listname"
-        $IPSET_BIN restore -! < "$f"
+	# Process IPv6 save files if supported
+	if [[ "${USE_IPV6}" == "true" ]]; then
+		load_blocklists "*-inet6.save" "${IP6TABLES_BIN}" "IPv6"
+	fi
 
-        if ! $IP6TABLES_BIN -C INPUT -m set --match-set "$listname" src -j DROP 2>/dev/null; then
-            $IP6TABLES_BIN -I INPUT -m set --match-set "$listname" src -j DROP
-            $IP6TABLES_BIN -I INPUT -m set --match-set "$listname" src -j LOG --log-prefix "$LOG_PREFIX $listname "
-            log "Added ip6tables rules for $listname"
-        fi
-    done
-
-    log "IPSET blocklist loaded successfully."
-    ;;
+	log "IPSET blocklist loaded successfully."
+	;;
 stop)
-    log "Stopping IPSET blocklist..."
-    
-    find "$IPSET_DIR" -name "*-inet.save" -print0 | while IFS= read -r -d '' f; do
-        listname=$(basename "$f" .save)
+	log "Stopping IPSET blocklist..."
 
-        $IPTABLES_BIN -D INPUT -m set --match-set "$listname" src -j DROP 2>/dev/null && log "Removed DROP rule for $listname"
-        $IPTABLES_BIN -D INPUT -m set --match-set "$listname" src -j LOG --log-prefix "$LOG_PREFIX $listname " 2>/dev/null && log "Removed LOG rule for $listname"
-        $IPSET_BIN destroy -q "$listname" 2>/dev/null && log "Destroyed ipset list: $listname"
-    done
+	# Unload IPv4 rules and sets
+	unload_blocklists "*-inet.save" "${IPTABLES_BIN}" "IPv4"
 
-    find "$IPSET_DIR" -name "*-inet6.save" -print0 | while IFS= read -r -d '' f; do
-        listname=$(basename "$f" .save)
+	# Unload IPv6 rules and sets if supported
+	if [[ "${USE_IPV6}" == "true" ]]; then
+		unload_blocklists "*-inet6.save" "${IP6TABLES_BIN}" "IPv6"
+	fi
 
-        $IP6TABLES_BIN -D INPUT -m set --match-set "$listname" src -j DROP 2>/dev/null && log "Removed DROP rule for $listname"
-        $IP6TABLES_BIN -D INPUT -m set --match-set "$listname" src -j LOG --log-prefix "$LOG_PREFIX $listname " 2>/dev/null && log "Removed LOG rule for $listname"
-        $IPSET_BIN destroy -q "$listname" 2>/dev/null && log "Destroyed ipset list: $listname"
-    done
-
-    log "IPSET blocklist stopped."
-    ;;
+	log "IPSET blocklist stopped."
+	;;
 status)
-    echo "=== Current IPSET Lists ==="
-    $IPSET_BIN list || echo "No ipset lists found."
-    ;;
+	echo "=== Current IPSET Lists ==="
+	if [[ -x "${IPSET_BIN}" ]]; then
+		all_sets="$("${IPSET_BIN}" list -n 2>/dev/null || true)"
+		if [[ -n "${all_sets}" ]]; then
+			while IFS= read -r set_name; do
+				[[ -z "${set_name}" ]] && continue
+				header="$("${IPSET_BIN}" list "${set_name}" 2>/dev/null | grep -E '^(Type|Header|Members|Number of entries):' || true)"
+				echo "[-] Set: ${set_name}"
+				if [[ -n "${header}" ]]; then
+					printf '    %s\n' "${header//$'\n'/$'\n    '}"
+				fi
+			done <<<"${all_sets}"
+		else
+			echo "No ipset lists found."
+		fi
+	else
+		log_error "ipset binary not executable."
+		exit 1
+	fi
+	;;
 *)
-    echo "Usage: $0 {start|stop|status}"
-    exit 1
-    ;;
+	echo "Usage: $0 {start|stop|status}"
+	exit 1
+	;;
 esac

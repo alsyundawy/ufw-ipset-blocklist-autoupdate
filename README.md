@@ -11,103 +11,127 @@
 [![Fork GitHub](https://img.shields.io/github/forks/alsyundawy/ufw-ipset-blocklist-autoupdate?style=social)](https://github.com/alsyundawy/ufw-ipset-blocklist-autoupdate/network/members)
 [![Kontributor GitHub](https://img.shields.io/github/contributors/alsyundawy/ufw-ipset-blocklist-autoupdate?style=social)](https://github.com/alsyundawy/ufw-ipset-blocklist-autoupdate/graphs/contributors)
 
-## Jumlah Bintang Seiring Waktu
-
-[![Stargazers over time](https://starchart.cc/alsyundawy/ufw-ipset-blocklist-autoupdate.svg?variant=adaptive)](https://starchart.cc/alsyundawy/ufw-ipset-blocklist-autoupdate)
-
-**Jika proyek ini bermanfaat bagi Anda, silakan pertimbangkan untuk berdonasi melalui [PayPal](https://www.paypal.me/alsyundawy). Terima kasih atas dukungan Anda!**
-
-## Tentang Proyek
+## Overview
 
 Koleksi skrip ini secara otomatis mengambil daftar blokir IP (misalnya Spamhaus, Blocklist, dll.) dan menolak paket dari alamat IP yang terdaftar. Skrip ini terintegrasi dengan firewall sederhana (`ufw`) dan menggunakan `ipset` untuk menyimpan alamat IP serta rentang jaringan. Mendukung daftar blokir IPv4 dan IPv6.
 
-## Instalasi
+Sangat ideal untuk memproteksi server email (**Zimbra Collaboration Suite**, Postfix, Dovecot) dan server aplikasi web dari serangan brute-force, botnet C2, dan spam di tingkat kernel Netfilter $O(1)$.
 
-1. Instal `ufw` dan `ipset`.
-2. Jalankan skrip `setup-ufw.sh`:
+## Dependencies
+
+Pastikan sistem Anda memiliki paket dependensi berikut terpasang:
+
+- `bash` (versi 4.0 atau lebih baru)
+- `ufw`
+- `ipset`
+- `iptables` / `ip6tables`
+- `wget` atau `curl`
+
+Pada Debian / Ubuntu:
+
+```sh
+apt-get update && apt-get install -y ufw ipset iptables wget git
+```
+
+Pada RHEL / CentOS / Rocky Linux / AlmaLinux:
+
+```sh
+yum install -y epel-release && yum install -y ufw ipset iptables-services wget git
+```
+
+## Quickstart
+
+1. Clone repositori:
+
+   ```sh
+   git clone https://github.com/alsyundawy/ufw-ipset-blocklist-autoupdate.git /root/ufw-ipset-blocklist-autoupdate
+   cd /root/ufw-ipset-blocklist-autoupdate
+   ```
+
+2. Jalankan skrip setup UFW:
+
    ```sh
    ./setup-ufw.sh
    ```
-3. Tentukan daftar blokir yang ingin digunakan.
-4. Unduh daftar blokir awal:
+
+3. Unduh dan inisialisasi daftar blokir awal:
+
    ```sh
    ./update-ip-blocklists.sh -l "blocklist https://lists.blocklist.de/lists/all.txt" -l "spamhaus https://www.spamhaus.org/drop/drop.txt"
    ```
-5. Tambahkan `update-ip-blocklists.sh` ke `crontab` untuk pembaruan otomatis:
+
+4. Tambahkan pembaruan otomatis ke Cron:
+
    ```sh
-   @daily /path/to/update-ip-blocklists.sh -l "blocklist https://lists.blocklist.de/lists/all.txt" -l "spamhaus https://www.spamhaus.org/drop/drop.txt"
+   ./blocklist-auto-update.sh
    ```
 
-## Penggunaan
+## Configuration
+
+### Penggunaan CLI `update-ip-blocklists.sh`
 
 ```sh
-Usage: ./update-ip-blocklists.sh [-h]
-Memblokir daftar IP dari sumber blocklist/blacklist publik (misalnya blocklist.de, spamhaus.org)
+Usage: ./update-ip-blocklists.sh [-h] [-4] [-6] [-q] [-v] -l "name url" [-l ...]
 
-Opsi:
-  -l     : Daftar blokir yang digunakan. Bisa ditentukan lebih dari sekali.
-           Format: "$name $url" (dipisahkan oleh spasi). Lihat contoh di bawah.
+Options:
+  -l     : Daftar blokir yang digunakan (format: "$name $url").
   -4     : Hanya untuk IPv4. Mengabaikan alamat IPv6.
   -6     : Hanya untuk IPv6. Mengabaikan alamat IPv4.
-  -q     : Mode senyap. Tidak menampilkan output jika opsi ini digunakan.
-  -v     : Mode verbose. Menampilkan informasi tambahan selama eksekusi.
-  -h     : Menampilkan pesan bantuan.
+  -q     : Mode senyap (suppress standard output).
+  -v     : Mode verbose (tampilkan informasi rinci).
+  -h     : Tampilkan bantuan.
+```
 
-Contoh penggunaan:
+### Contoh Konfigurasi Sumber Blocklist
+
+```sh
 ./update-ip-blocklists.sh -l "spamhaus https://www.spamhaus.org/drop/drop.txt"
 ./update-ip-blocklists.sh -l "blocklist https://lists.blocklist.de/lists/all.txt" -l "spamhaus https://www.spamhaus.org/drop/drop.txt"
 ./update-ip-blocklists.sh -l "spamhaus https://www.spamhaus.org/drop/drop.txt" -l "spamhaus6 https://www.spamhaus.org/drop/dropv6.txt"
 ```
 
-## Komponen
+## Running Tests
 
-- `update-ip-blocklist.sh`: Mengunduh versi terbaru dari daftar blokir, memperbarui ipset, dan mengekspor ipset ke `$IPSET_DIR` (default: `/var/lib/ipset`).
-- `ufw/after.init`: Menyisipkan dan menghapus aturan `iptables` yang diperlukan saat `ufw` dimuat ulang.
-- `setup-ufw.sh`: Skrip bantu untuk menerapkan `ufw/after.init`.
+Untuk memvalidasi sintaksis dan kepatuhan ShellCheck:
+
+```sh
+shellcheck --norc *.sh ufw/*
+for f in *.sh ufw/*; do bash -n "$f"; done
+```
 
 ## Daftar Blokir yang Didukung
 
-Skrip ini dapat membaca semua daftar blokir yang mencantumkan alamat IPv4 atau IPv6 dengan format teks biasa per baris. Beberapa daftar blokir yang dapat digunakan:
-
-- [Binary Defense Systems Artillery Threat Intelligence Banlist](https://www.binarydefense.com):</br>
+- [Binary Defense Systems Artillery Threat Intelligence Banlist](https://www.binarydefense.com):
   `-l "bdsatib https://www.binarydefense.com/banlist.txt"`
-- [Blocklist.de Fail2Ban Reporting (all)](https://www.blocklist.de/en/export.html):</br>
+- [Blocklist.de Fail2Ban Reporting (all)](https://www.blocklist.de/en/export.html):
   `-l "blocklist https://lists.blocklist.de/lists/all.txt"`
-- [BruteForceBlocker](https://danger.rulez.sk/index.php/bruteforceblocker/):</br>
+- [BruteForceBlocker](https://danger.rulez.sk/index.php/bruteforceblocker/):
   `-l "bfblocker https://danger.rulez.sk/projects/bruteforceblocker/blist.php"`
-- [CINS Army List](http://www.ciarmy.com/#list):</br>
+- [CINS Army List](http://www.ciarmy.com/#list):
   `-l "cnisarmy http://cinsscore.com/list/ci-badguys.txt"`
-- [FEODO Tracker: Botnet C2 (Recommended)](https://feodotracker.abuse.ch/blocklist/):</br>
+- [FEODO Tracker: Botnet C2 (Recommended)](https://feodotracker.abuse.ch/blocklist/):
   `-l "feodoc2 https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt"`
-- [FEODO Tracker: Botnet C2 IoC (Recommended)](https://feodotracker.abuse.ch/blocklist/):</br>
-  `-l "feodoc2ioc https://feodotracker.abuse.ch/downloads/ipblocklist.txt"`
-- [FEODO Tracker: Botnet C2 IoC (Aggressive)](https://feodotracker.abuse.ch/blocklist/):</br>
-  `-l "feodoc2ioca https://feodotracker.abuse.ch/downloads/ipblocklist_aggressive.txt"`
-- [FireHOL IP List Level 1](https://iplists.firehol.org/):</br>
+- [FireHOL IP List Level 1](https://iplists.firehol.org/):
   `-l "firehol1 https://iplists.firehol.org/files/firehol_level1.netset"`
-- [GreenSnow](https://greensnow.co/):</br>
+- [GreenSnow](https://greensnow.co/):
   `-l "greensnow https://blocklist.greensnow.co/greensnow.txt"`
-- [IPsum](https://github.com/stamparm/ipsum):</br>
-  `-l "ipsum https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt"`</br>
-- [Spamhaus Don't Route Or Peer List (DROP)](https://www.spamhaus.org/drop/):</br>
+- [IPsum](https://github.com/stamparm/ipsum):
+  `-l "ipsum https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt"`
+- [Spamhaus Don't Route Or Peer List (DROP)](https://www.spamhaus.org/drop/):
   `-l "spamhaus https://www.spamhaus.org/drop/drop.txt"`
-- [Spamhaus IPv6 DROP List (DROPv6)](https://www.spamhaus.org/drop/):</br>
+- [Spamhaus IPv6 DROP List (DROPv6)](https://www.spamhaus.org/drop/):
   `-l "spamhaus6 https://www.spamhaus.org/drop/dropv6.txt"`
-- [Spamhaus Extended DROP List (EDROP)](https://www.spamhaus.org/drop/):</br>
-  `-l "spamhausex https://www.spamhaus.org/drop/edrop.txt"`
+
+## Contributing
+
+Kontribusi selalu terbuka! Silakan kirimkan Pull Request atau laporkan bug melalui GitHub Issues.
+
+## License
+
+Proyek ini dilisensikan di bawah [MIT License](file:///Users/alsyundawy/Downloads/GitHub/ufw-ipset-blocklist-autoupdate/LICENSE).
+
+---
 
 ## Penghargaan
 
 Proyek ini terinspirasi dari [blog Xela's Linux](https://spielwiese.la-evento.com/xelasblog/archives/74-Ipset-aus-der-Spamhaus-DROP-gemeinsam-mit-ufw-nutzen.html).
-
----
-
-## **Anda Luar Biasa | ༺ Harry DS Alsyundawy ༻**
-
-## **"Hanya Saya, Diri Saya, dan Saya Sendiri. Tidak Ada yang Sempurna."**
-
----
-
-## Statistik GitHub
-
-![Alt](https://repobeats.axiom.co/api/embed/96c0ae9c24279dc7c5da425f07426f78c35a3cc9.svg "Repobeats analytics image")

@@ -5,14 +5,12 @@
 #
 # Blocking lists of IPs from public blocklists / blacklists (e.g. blocklist.de, spamhaus.org)
 #
-# Version: 1.1.1
-#
-# See: https://github.com/ngandrass/ufw-ipset-blocklist-autoupdate
-#
+# Version: 1.2.1
 #
 # MIT License
 #
 # Copyright (c) 2023 Niels Gandraß <niels@gandrass.de>
+# Modifications (c) 2026 Harry DS Alsyundawy
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -33,24 +31,33 @@
 # SOFTWARE.
 # ##################################################
 
-IPSET_BIN="/usr/bin/ipset"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      # Path to ipset binary. Updated by detect_ipset().
-IPSET_DIR="/var/lib/ipset"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      # Folder to write ipset save files to
-IPSET_PREFIX="bl"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               # Prefix for ipset names
-IPSET_TYPE="hash:net"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           # Type of created ipsets
-IPV4=1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          # Enable IPv4 by default
-IPV6=1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          # Enable IPv6 by default
-QUIET=0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         # Default quiet mode setting
-VERBOSE=0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       # Default verbosity level
-declare -A BLOCKLISTS                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           # Array for blocklists to use. Populated by CLI args,
-IPV4_REGEX="(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(/[1-3]?[0-9])?"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      # Regex for a valid IPv4 address with optional subnet part
-IPV6_REGEX="(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))(/[1-6]?[0-9])?" # Regef for a valid IPv6 address with optional subnet part
+set -euo pipefail
+IFS=$'\n\t'
+
+# === Defaults and Configuration ===
+IPSET_BIN="" # Detected dynamically
+IPSET_DIR="/var/lib/ipset"
+IPSET_PREFIX="bl"
+IPSET_TYPE="hash:net"
+DEFAULT_HASHSIZE=16384
+DEFAULT_MAXELEM=1048576
+IPV4=1
+IPV6=1
+QUIET=0
+VERBOSE=0
+declare -a BLOCKLISTS=()
+TMP_DIR=""
+
+# Regex definitions for IP matching
+IPV4_REGEX="(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(/[1-3]?[0-9])?"
+IPV6_REGEX="(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))(/[1-6]?[0-9])?"
 
 ##
 # Prints the help/usage message
 ##
-function print_usage() {
+print_usage() {
 	cat <<EOF
-Usage: $0 [-h]
+Usage: $0 [-h] [-4] [-6] [-q] [-v] -l "name url" [-l ...]
 Blocking lists of IPs from public blocklists / blacklists (e.g. blocklist.de, spamhaus.org)
 
 Options:
@@ -63,68 +70,48 @@ Options:
   -h     : Print this help message.
 
 Example usage:
-$0 -l "spamhaus https://www.spamhaus.org/drop/drop.txt"
-$0 -l "blocklist https://lists.blocklist.de/lists/all.txt" -l "spamhaus https://www.spamhaus.org/drop/drop.txt"
-$0 -l "spamhaus https://www.spamhaus.org/drop/drop.txt" -l "spamhaus6 https://www.spamhaus.org/drop/dropv6.txt"
+  $0 -l "spamhaus https://www.spamhaus.org/drop/drop.txt"
+  $0 -l "blocklist https://lists.blocklist.de/lists/all.txt" -l "spamhaus https://www.spamhaus.org/drop/drop.txt"
+  $0 -l "spamhaus https://www.spamhaus.org/drop/drop.txt" -l "spamhaus6 https://www.spamhaus.org/drop/dropv6.txt"
 EOF
 }
 
 ##
-# Writes argument $1 to stdout if $QUIET is not set
-#
-# Arguments:
-#   $1 Message to write to stdout
+# Logging functions
 ##
-function log() {
+log() {
 	if [[ ${QUIET} -eq 0 ]]; then
-		echo "$1"
+		printf '%s\n' "$1"
 	fi
 }
 
-##
-# Writes argument $1 to stdout if $VERBOSE is set and $QUIET is not set
-#
-# Arguments:
-#   $1 Message to write to stdout
-##
-function log_verbose() {
-	if [[ ${VERBOSE} -eq 1 ]]; then
-		if [[ ${QUIET} -eq 0 ]]; then
-			echo "$1"
-		fi
+log_verbose() {
+	if [[ ${VERBOSE} -eq 1 && ${QUIET} -eq 0 ]]; then
+		printf '%s\n' "$1"
 	fi
 }
 
-##
-# Writes argument $1 to stderr. Ignores $QUIET.
-#
-# Arguments:
-#   $1 Message to write to stderr
-##
-function log_error() {
-	echo >&2 "[ERROR]: $1"
+log_error() {
+	printf '[ERROR]: %s\n' "$1" >&2
 }
 
 ##
 # Detects ipset binary
-#
-# Return: Path to ipset
-#
-function detect_ipset() {
-	local IPSET_BIN
-	IPSET_BIN=$(command -v ipset)
-	if [[ ! -x ${IPSET_BIN} ]]; then
-		log_error "ipset binary not found."
+##
+detect_ipset() {
+	local bin
+	bin="$(command -v ipset || true)"
+	if [[ -z "${bin}" || ! -x "${bin}" ]]; then
+		log_error "ipset binary not found in PATH or not executable."
 		exit 1
 	fi
-
-	echo "${IPSET_BIN}"
+	printf '%s' "${bin}"
 }
 
 ##
-# Validates the correctness of the BLOCKLISTS array. Exists upon error.
-#
-function validate_blocklists() {
+# Validates the correctness of the BLOCKLISTS array
+##
+validate_blocklists() {
 	if [[ ${#BLOCKLISTS[@]} -eq 0 ]]; then
 		log_error "No blocklists given. Exiting..."
 		print_usage
@@ -132,17 +119,23 @@ function validate_blocklists() {
 	fi
 
 	for list in "${BLOCKLISTS[@]}"; do
-		local list_name list_url
-		list_name=$(echo "${list}" | cut -d ' ' -f 1)
-		list_url=$(echo "${list}" | cut -d ' ' -f 2)
+		local list_name="${list%% *}"
+		local list_url="${list#* }"
 
-		if [[ -z ${list_name} ]]; then
+		if [[ -z "${list_name}" || "${list_name}" == "${list}" ]]; then
 			log_error "Invalid name for list: ${list}"
 			exit 1
 		fi
 
-		if [[ -z ${list_url} ]]; then
+		if [[ -z "${list_url}" ]]; then
 			log_error "Invalid url for list: ${list}"
+			exit 1
+		fi
+
+		# Check name length for ipset compatibility (max 31 characters total with prefix and suffix)
+		# Prefix: bl- (3), suffix: -inet6-T (9) -> list name max 19 chars
+		if ((${#list_name} > 19)); then
+			log_error "List name '${list_name}' is too long (${#list_name} chars). Max 19 characters allowed."
 			exit 1
 		fi
 
@@ -151,125 +144,145 @@ function validate_blocklists() {
 }
 
 ##
-# Updates an ipset based on a list of IP addresses
-#
-# Arguments:
-#   $1 Name of the ipset to update
-#   $2 File containing all IP addresses to store in ipset
-#   $3 Procotol family (e.g. inet OR inet6)
-function update_ipset() {
-	# Setup local vars
-	local setname=$1
-	local ipfile=$2
-	local family=$3
+# Downloads a file with wget or curl
+##
+download_file() {
+	local url="$1"
+	local destination="$2"
 
-	# Create temporary ipset to build and ensure existence of live ipset
+	if command -v wget >/dev/null 2>&1; then
+		wget -q --timeout=30 --tries=3 -O "${destination}" "${url}"
+	elif command -v curl >/dev/null 2>&1; then
+		curl -fsSL --connect-timeout 30 --retry 3 -o "${destination}" "${url}"
+	else
+		log_error "Neither 'wget' nor 'curl' binary found for downloading."
+		exit 1
+	fi
+}
+
+##
+# Updates an ipset based on a list of IP addresses
+##
+update_ipset() {
+	local setname="$1"
+	local ipfile="$2"
+	local family="$3"
+
 	local livelist="${setname}-${family}"
 	local templist="${setname}-${family}-T"
 
-	${IPSET_BIN} create -q "${livelist}" "${IPSET_TYPE}" family "${family}"
-	${IPSET_BIN} create -q "${templist}" "${IPSET_TYPE}" family "${family}"
+	# Create sets if they do not exist
+	"${IPSET_BIN}" create -! "${livelist}" "${IPSET_TYPE}" family "${family}" hashsize "${DEFAULT_HASHSIZE}" maxelem "${DEFAULT_MAXELEM}" 2>/dev/null || true
+	"${IPSET_BIN}" create -! "${templist}" "${IPSET_TYPE}" family "${family}" hashsize "${DEFAULT_HASHSIZE}" maxelem "${DEFAULT_MAXELEM}" 2>/dev/null || true
+
+	# Ensure temp set is flushed
+	"${IPSET_BIN}" flush "${templist}" 2>/dev/null || true
 	log_verbose "Prepared ipset lists: livelist='${livelist}', templist='${templist}'"
 
-	if [[ -s ${ipfile} ]]; then
-		awk -v setn="${templist}" '{print "add " setn " " $1}' "${ipfile}" | ${IPSET_BIN} restore -! 2>/dev/null
+	local entry_count=0
+	if [[ -s "${ipfile}" ]]; then
+		awk -v setn="${templist}" '{print "add " setn " " $1}' "${ipfile}" | "${IPSET_BIN}" restore -! 2>/dev/null || true
+		entry_count=$(wc -l <"${ipfile}" | tr -d ' ')
 	fi
 
-	${IPSET_BIN} swap "${templist}" "${livelist}"
+	"${IPSET_BIN}" swap "${templist}" "${livelist}" 2>/dev/null || true
 	log_verbose "Swapped ipset: ${livelist}"
-	${IPSET_BIN} destroy "${templist}"
-	log_verbose "Destroyed ipset: ${templist}"
+	"${IPSET_BIN}" destroy "${templist}" 2>/dev/null || true
+	log_verbose "Destroyed temporary ipset: ${templist}"
 
 	# Write ipset savefile
-	${IPSET_BIN} save "${livelist}" >"${IPSET_DIR}/${livelist}.save"
+	"${IPSET_BIN}" save "${livelist}" >"${IPSET_DIR}/${livelist}.save"
 	log_verbose "Wrote savefile for '${livelist}' to: ${IPSET_DIR}/${livelist}.save"
-	log "Added $(wc -l <"${ipfile}") to ipset '${livelist}'"
+	log "Added ${entry_count} entries to ipset '${livelist}'"
 }
 
 ##
-# Updates the given blocklist from an URL
-#
-# Arguments:
-#   $1 Name of the blocklist
-#   $2 URL of the blocklist
-#
-function update_blocklist() {
-	# Download blocklist
-	log "Updating blacklist '$1' ..."
-	log_verbose "Downloading blocklist '$1' from: $2 ..."
-	local tempfile
-	tempfile=$(mktemp "/tmp/blocklist.$1.XXXXXXXX")
-	trap 'rm -f "${tempfile}"*' EXIT
-	wget -q --timeout=30 --tries=3 -O "${tempfile}" "$2"
+# Updates the given blocklist from a URL
+##
+update_blocklist() {
+	local name="$1"
+	local url="$2"
 
-	# Check downloaded list
-	linecount=$(wc -l <"${tempfile}")
-	if [[ ${linecount} -lt 10 ]]; then
-		log_error "Blacklist '$1' containes only ${linecount} lines. This seems to short. Exiting..."
-		exit 1
+	log "Updating blacklist '${name}' ..."
+	log_verbose "Downloading blocklist '${name}' from: ${url} ..."
+
+	local raw_file="${TMP_DIR}/blocklist.${name}.raw"
+	download_file "${url}" "${raw_file}"
+
+	if [[ ! -s "${raw_file}" ]]; then
+		log_error "Blacklist '${name}' is empty or failed to download from ${url}."
+		return 1
 	fi
 
-	# Extract ips from raw list data
+	local linecount
+	linecount=$(wc -l <"${raw_file}" | tr -d ' ')
+	if ((linecount < 1)); then
+		log_error "Blacklist '${name}' contains 0 lines. Skipping..."
+		return 1
+	fi
+
+	# Extract IPv4 addresses
 	if [[ ${IPV4} -eq 1 ]]; then
-		grep -v '^[#;]' "${tempfile}" | grep -E -o "${IPV4_REGEX}" | cut -d ' ' -f 1 >"${tempfile}.filtered"
-		local numips
-		numips=$(wc -l <"${tempfile}.filtered")
-		log_verbose "Got ${numips} IPv4 entries from blocklist '$1'"
+		local filtered_ipv4="${TMP_DIR}/blocklist.${name}.ipv4"
+		grep -v '^[#;]' "${raw_file}" | grep -E -o "${IPV4_REGEX}" | cut -d ' ' -f 1 | sort -u >"${filtered_ipv4}" || true
+		local numips_v4
+		numips_v4=$(wc -l <"${filtered_ipv4}" | tr -d ' ')
+		log_verbose "Got ${numips_v4} IPv4 entries from blocklist '${name}'"
 
-		if [[ ${numips} -gt 0 ]]; then
-			update_ipset "${IPSET_PREFIX}-$1" "${tempfile}.filtered" "inet"
+		if ((numips_v4 > 0)); then
+			update_ipset "${IPSET_PREFIX}-${name}" "${filtered_ipv4}" "inet"
 		else
-			log_verbose "No IPv4 addresses found in blocklist '$1'. Skipping"
+			log_verbose "No IPv4 addresses found in blocklist '${name}'. Skipping IPv4."
 		fi
 	fi
+
+	# Extract IPv6 addresses
 	if [[ ${IPV6} -eq 1 ]]; then
-		grep -v '^[#;]' "${tempfile}" | grep -E -o "${IPV6_REGEX}" | cut -d ' ' -f 1 >"${tempfile}.filtered6"
-		local numips
-		numips=$(wc -l <"${tempfile}.filtered6")
-		log_verbose "Got ${numips} IPv6 entries from blocklist '$1'"
+		local filtered_ipv6="${TMP_DIR}/blocklist.${name}.ipv6"
+		grep -v '^[#;]' "${raw_file}" | grep -E -o "${IPV6_REGEX}" | cut -d ' ' -f 1 | sort -u >"${filtered_ipv6}" || true
+		local numips_v6
+		numips_v6=$(wc -l <"${filtered_ipv6}" | tr -d ' ')
+		log_verbose "Got ${numips_v6} IPv6 entries from blocklist '${name}'"
 
-		if [[ ${numips} -gt 0 ]]; then
-			update_ipset "${IPSET_PREFIX}-$1" "${tempfile}.filtered6" "inet6"
+		if ((numips_v6 > 0)); then
+			update_ipset "${IPSET_PREFIX}-${name}" "${filtered_ipv6}" "inet6"
 		else
-			log_verbose "No IPv6 addresses found in blocklist '$1'. Skipping"
+			log_verbose "No IPv6 addresses found in blocklist '${name}'. Skipping IPv6."
 		fi
 	fi
-
-	# Cleanup
-	rm "${tempfile}"*
 }
 
 ##
-# Main program loop
+# Main function
 ##
-function main() {
+main() {
 	if [[ ${EUID} -ne 0 ]]; then
 		log_error "Script must be run as root."
 		exit 1
 	fi
 
-	# Check arguments
 	validate_blocklists
-
-	# Setup ipset
-	IPSET_BIN=$(detect_ipset)
+	IPSET_BIN="$(detect_ipset)"
 	mkdir -p "${IPSET_DIR}"
 
-	# Update blocklists
-	for list in "${BLOCKLISTS[@]}"; do
-		local list_name list_url
-		list_name=$(echo "${list}" | cut -d ' ' -f 1)
-		list_url=$(echo "${list}" | cut -d ' ' -f 2)
+	# Setup atomic temporary directory with cleanup trap
+	TMP_DIR="$(mktemp -d "/tmp/ufw-blocklist.XXXXXXXX")"
+	trap 'rm -rf "${TMP_DIR}"' EXIT INT TERM HUP
 
-		update_blocklist "${list_name}" "${list_url}"
+	for list in "${BLOCKLISTS[@]}"; do
+		local list_name="${list%% *}"
+		local list_url="${list#* }"
+		update_blocklist "${list_name}" "${list_url}" || true
 	done
+
+	log "All blocklists processed successfully."
 }
 
-# Parse arguments
+# === Argument Parsing ===
 while getopts ":hqv46l:" opt; do
-	case ${opt} in
+	case "${opt}" in
 	l)
-		BLOCKLISTS[${#BLOCKLISTS[@]}]=${OPTARG}
+		BLOCKLISTS+=("${OPTARG}")
 		;;
 	4)
 		IPV4=1
@@ -289,18 +302,20 @@ while getopts ":hqv46l:" opt; do
 		;;
 	h)
 		print_usage
-		exit
+		exit 0
 		;;
 	:)
+		log_error "Option -${OPTARG} requires an argument."
 		print_usage
-		exit
+		exit 1
 		;;
 	\? | *)
+		log_error "Invalid option -${OPTARG}."
 		print_usage
-		exit
+		exit 1
 		;;
 	esac
 done
 
-# Entry point
+# Execute main
 main
